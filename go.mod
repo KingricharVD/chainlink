@@ -3,7 +3,7 @@ module github.com/smartcontractkit/chainlink
 go 1.15
 
 require (
-	github.com/BurntSushi/toml v0.3.1
+	github.com/BurntSushi/toml v0.3.1 // indirect
 	github.com/DATA-DOG/go-txdb v0.1.3
 	github.com/Depado/ginprom v1.2.1-0.20200115153638-53bbba851bd8
 	github.com/araddon/dateparse v0.0.0-20190622164848-0fb0a474d195
@@ -46,6 +46,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/satori/go.uuid v1.2.0
 	github.com/shopspring/decimal v1.2.0
+	github.com/spf13/afero v1.2.1 // indirect
 	github.com/spf13/viper v1.7.1
 	github.com/stretchr/testify v1.6.1
 	github.com/tevino/abool v0.0.0-20170917061928-9b9efcf221b5
@@ -62,8 +63,7 @@ require (
 	golang.org/x/net v0.0.0-20200904194848-62affa334b73 // indirect
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
 	golang.org/x/text v0.3.3
-	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
-	golang.org/x/tools v0.0.0-20200414032229-332987a829c3 // indirect
+	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
 	gonum.org/v1/gonum v0.8.1
 	gopkg.in/gormigrate.v1 v1.6.0
 	gopkg.in/guregu/null.v2 v2.1.2 // indirect
