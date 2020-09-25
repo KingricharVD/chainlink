@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"golang.org/x/crypto/curve25519"
 )
 
@@ -89,14 +88,12 @@ type MonitoringEndpoint interface {
 
 // ContractTransmitter sends new reports to the OffchainAggregator smart contract
 type ContractTransmitter interface {
-
 	// Transmit sends the report to the on-chain OffchainAggregator smart contract's Transmit method
 	Transmit(
+		ctx context.Context,
 		report []byte, // wire-formatted report to transmit on-chain
 		rs, ss [][32]byte, vs [32]byte, // Signatures; i'th elt's are i'th (v,r,s)
-	) (
-		*types.Transaction, error,
-	)
+	) error
 
 	LatestTransmissionDetails(
 		ctx context.Context,
