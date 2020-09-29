@@ -721,3 +721,34 @@ func DebugPanic() {
 		panic(err)
 	}
 }
+
+type StartStopOnce struct {
+	state int
+	sync.Mutex
+}
+
+const (
+	ssoState_Unstarted int = iota
+	ssoState_Started
+	ssoState_Stopped
+)
+
+func (once *StartStopOnce) AssertNeverStarted() {
+	once.Lock()
+	defer once.Unlock()
+
+	if once.state != ssoState_Unstarted {
+		panic("not unstarted")
+	}
+	once.state = ssoState_Started
+}
+
+func (once *StartStopOnce) AssertNeverStopped() {
+	once.Lock()
+	defer once.Unlock()
+
+	if once.state != ssoState_Started {
+		panic("not started")
+	}
+	once.state = ssoState_Stopped
+}
