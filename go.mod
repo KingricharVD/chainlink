@@ -2,8 +2,10 @@ module github.com/smartcontractkit/chainlink
 
 go 1.15
 
+replace github.com/smartcontractkit/offchain-reporting/lib => ../offchain-reporting-design/lib
+
 require (
-	github.com/BurntSushi/toml v0.3.1 // indirect
+	github.com/BurntSushi/toml v0.3.1
 	github.com/DATA-DOG/go-txdb v0.1.3
 	github.com/Depado/ginprom v1.2.1-0.20200115153638-53bbba851bd8
 	github.com/araddon/dateparse v0.0.0-20190622164848-0fb0a474d195
@@ -37,8 +39,8 @@ require (
 	github.com/libp2p/go-libp2p-peerstore v0.2.6
 	github.com/manyminds/api2go v0.0.0-20171030193247-e7b693844a6f
 	github.com/mitchellh/go-homedir v1.1.0
-	github.com/multiformats/go-multiaddr v0.3.1
 	github.com/mitchellh/mapstructure v1.1.2
+	github.com/multiformats/go-multiaddr v0.3.1
 	github.com/olekukonko/tablewriter v0.0.4
 	github.com/onsi/gomega v1.10.1
 	github.com/pkg/errors v0.9.1
@@ -65,6 +67,7 @@ require (
 	golang.org/x/text v0.3.3
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
 	gonum.org/v1/gonum v0.8.1
+	google.golang.org/api v0.13.0
 	gopkg.in/gormigrate.v1 v1.6.0
 	gopkg.in/guregu/null.v2 v2.1.2 // indirect
 	gopkg.in/guregu/null.v3 v3.5.0
