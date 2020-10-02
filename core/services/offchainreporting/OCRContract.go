@@ -26,15 +26,6 @@ var (
 )
 
 type (
-	LogConfigSet struct {
-		eth.GethRawLog
-		ConfigCount  uint64
-		Oracles      []gethCommon.Address
-		Transmitters []gethCommon.Address
-		Threshold    uint8
-		Config       []byte
-	}
-
 	OCRContract struct {
 		ethClient        eth.Client
 		configSetChan    chan offchainaggregator.OffchainAggregatorConfigSet
@@ -42,10 +33,9 @@ type (
 		contractCaller   *offchainaggregator.OffchainAggregatorCaller
 		contractAddress  gethCommon.Address
 		logBroadcaster   eth.LogBroadcaster
-
-		jobID       models.ID
-		transmitter Transmitter
-		contractABI abi.ABI
+		jobID            models.ID
+		transmitter      Transmitter
+		contractABI      abi.ABI
 	}
 
 	Transmitter interface {
@@ -77,35 +67,35 @@ func NewOCRContract(address gethCommon.Address, ethClient eth.Client, logBroadca
 	}
 
 	return &OCRContract{
-		contractFilterer: contractFilterer,
-		contractCaller:   contractCaller,
-		contractAddress:  address,
-		logBroadcaster:   logBroadcaster,
-		ethClient:        ethClient,
-		configSetChan:    make(chan offchainaggregator.OffchainAggregatorConfigSet),
-		jobID:            jobID,
-		transmitter:      transmitter,
-		contractABI:      contractABI,
+		ethClient,
+		make(chan offchainaggregator.OffchainAggregatorConfigSet),
+		contractFilterer,
+		contractCaller,
+		address,
+		logBroadcaster,
+		jobID,
+		transmitter,
+		contractABI,
 	}, nil
 }
 
-func (ra *OCRContract) Transmit(ctx context.Context, report []byte, rs, ss [][32]byte, vs [32]byte) error {
-	payload, err := ra.contractABI.Pack("transmit", report, rs, ss, vs)
+func (oc *OCRContract) Transmit(ctx context.Context, report []byte, rs, ss [][32]byte, vs [32]byte) error {
+	payload, err := oc.contractABI.Pack("transmit", report, rs, ss, vs)
 	if err != nil {
 		return errors.Wrap(err, "abi.Pack failed")
 	}
 
-	return errors.Wrap(ra.transmitter.CreateEthTransaction(ctx, ra.contractAddress, payload), "failed to send Eth transaction")
+	return errors.Wrap(oc.transmitter.CreateEthTransaction(ctx, oc.contractAddress, payload), "failed to send Eth transaction")
 }
 
-func (ra *OCRContract) SubscribeToNewConfigs(context.Context) (ocrtypes.ContractConfigSubscription, error) {
+func (oc *OCRContract) SubscribeToNewConfigs(context.Context) (ocrtypes.ContractConfigSubscription, error) {
 	sub := &OCRContractConfigSubscription{
 		make(chan ocrtypes.ContractConfig),
-		ra,
+		oc,
 		sync.Mutex{},
 		false,
 	}
-	connected := ra.logBroadcaster.Register(ra.contractAddress, sub)
+	connected := oc.logBroadcaster.Register(oc.contractAddress, sub)
 	if !connected {
 		return nil, errors.New("Failed to register with logBroadcaster")
 	}
@@ -113,9 +103,9 @@ func (ra *OCRContract) SubscribeToNewConfigs(context.Context) (ocrtypes.Contract
 	return sub, nil
 }
 
-func (ra *OCRContract) LatestConfigDetails(ctx context.Context) (changedInBlock uint64, configDigest ocrtypes.ConfigDigest, err error) {
+func (oc *OCRContract) LatestConfigDetails(ctx context.Context) (changedInBlock uint64, configDigest ocrtypes.ConfigDigest, err error) {
 	opts := bind.CallOpts{Context: ctx, Pending: false}
-	result, err := ra.contractCaller.LatestConfigDetails(&opts)
+	result, err := oc.contractCaller.LatestConfigDetails(&opts)
 	if err != nil {
 		return 0, configDigest, errors.Wrap(err, "error getting LatestConfigDetails")
 	}
@@ -125,7 +115,7 @@ func (ra *OCRContract) LatestConfigDetails(ctx context.Context) (changedInBlock 
 // Conform OCRContract to LogListener interface
 type OCRContractConfigSubscription struct {
 	ch       chan ocrtypes.ContractConfig
-	ra       *OCRContract
+	oc       *OCRContract
 	mutex    sync.Mutex
 	chClosed bool
 }
@@ -147,7 +137,7 @@ func (sub *OCRContractConfigSubscription) HandleLog(lb eth.LogBroadcast, err err
 	}
 	switch topics[0] {
 	case OCRContractConfigSet:
-		configSet, err := sub.ra.contractFilterer.ParseConfigSet(lb.Log().RawLog())
+		configSet, err := sub.oc.contractFilterer.ParseConfigSet(lb.Log().RawLog())
 		if err != nil {
 			panic(err)
 		}
@@ -158,35 +148,35 @@ func (sub *OCRContractConfigSubscription) HandleLog(lb eth.LogBroadcast, err err
 	}
 }
 func (sub *OCRContractConfigSubscription) JobID() *models.ID {
-	jobID := sub.ra.jobID
+	jobID := sub.oc.jobID
 	return &jobID
 }
 func (sub *OCRContractConfigSubscription) Configs() <-chan ocrtypes.ContractConfig {
 	return sub.ch
 }
 func (sub *OCRContractConfigSubscription) Close() {
-	sub.ra.logBroadcaster.Unregister(sub.ra.contractAddress, sub)
+	sub.oc.logBroadcaster.Unregister(sub.oc.contractAddress, sub)
 }
 
-func (ra *OCRContract) ConfigFromLogs(ctx context.Context, changedInBlock uint64) (c ocrtypes.ContractConfig, err error) {
+func (oc *OCRContract) ConfigFromLogs(ctx context.Context, changedInBlock uint64) (c ocrtypes.ContractConfig, err error) {
 	q := ethereum.FilterQuery{
 		FromBlock: big.NewInt(int64(changedInBlock)),
 		ToBlock:   big.NewInt(int64(changedInBlock)),
-		Addresses: []gethCommon.Address{ra.contractAddress},
+		Addresses: []gethCommon.Address{oc.contractAddress},
 		Topics: [][]gethCommon.Hash{
 			{OCRContractConfigSet},
 		},
 	}
 
-	logs, err := ra.ethClient.FilterLogs(ctx, q)
+	logs, err := oc.ethClient.FilterLogs(ctx, q)
 	if err != nil {
 		return c, err
 	}
 	if len(logs) == 0 {
-		return c, errors.Errorf("ConfigFromLogs: OCRContract with address 0x%x has no logs", ra.contractAddress)
+		return c, errors.Errorf("ConfigFromLogs: OCRContract with address 0x%x has no logs", oc.contractAddress)
 	}
 
-	latest, err := ra.contractFilterer.ParseConfigSet(logs[len(logs)-1])
+	latest, err := oc.contractFilterer.ParseConfigSet(logs[len(logs)-1])
 	if err != nil {
 		return c, errors.Wrap(err, "ConfigFromLogs failed to ParseConfigSet")
 	}
@@ -194,8 +184,8 @@ func (ra *OCRContract) ConfigFromLogs(ctx context.Context, changedInBlock uint64
 	return confighelper.ContractConfigFromConfigSetEvent(*latest), err
 }
 
-func (ra *OCRContract) LatestBlockHeight(ctx context.Context) (blockheight uint64, err error) {
-	h, err := ra.ethClient.HeaderByNumber(ctx, nil)
+func (oc *OCRContract) LatestBlockHeight(ctx context.Context) (blockheight uint64, err error) {
+	h, err := oc.ethClient.HeaderByNumber(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -206,9 +196,9 @@ func (ra *OCRContract) LatestBlockHeight(ctx context.Context) (blockheight uint6
 	return uint64(h.Number), nil
 }
 
-func (ra *OCRContract) LatestTransmissionDetails(ctx context.Context) (configDigest ocrtypes.ConfigDigest, epoch uint32, round uint8, latestAnswer ocrtypes.Observation, latestTimestamp time.Time, err error) {
+func (oc *OCRContract) LatestTransmissionDetails(ctx context.Context) (configDigest ocrtypes.ConfigDigest, epoch uint32, round uint8, latestAnswer ocrtypes.Observation, latestTimestamp time.Time, err error) {
 	opts := bind.CallOpts{Context: ctx, Pending: false}
-	result, err := ra.contractCaller.LatestTransmissionDetails(&opts)
+	result, err := oc.contractCaller.LatestTransmissionDetails(&opts)
 	if err != nil {
 		return configDigest, 0, 0, ocrtypes.Observation(nil), time.Time{}, errors.Wrap(err, "error getting LatestTransmissionDetails")
 	}
@@ -223,6 +213,6 @@ func getConfigSetHash() gethCommon.Hash {
 	return abi.Events["ConfigSet"].ID
 }
 
-func (ra *OCRContract) FromAddress() gethCommon.Address {
-	return ra.transmitter.FromAddress()
+func (oc *OCRContract) FromAddress() gethCommon.Address {
+	return oc.transmitter.FromAddress()
 }
