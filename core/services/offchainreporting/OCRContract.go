@@ -10,6 +10,7 @@ import (
 	ethereum "github.com/ethereum/go-ethereum"
 	gethCommon "github.com/ethereum/go-ethereum/common"
 
+	"github.com/smartcontractkit/chainlink/core/logger"
 	"github.com/smartcontractkit/chainlink/core/services/eth"
 	"github.com/smartcontractkit/chainlink/core/store/models"
 	"github.com/smartcontractkit/chainlink/offchainreporting/confighelper"
@@ -28,7 +29,6 @@ var (
 type (
 	OCRContract struct {
 		ethClient        eth.Client
-		configSetChan    chan offchainaggregator.OffchainAggregatorConfigSet
 		contractFilterer *offchainaggregator.OffchainAggregatorFilterer
 		contractCaller   *offchainaggregator.OffchainAggregatorCaller
 		contractAddress  gethCommon.Address
@@ -36,6 +36,7 @@ type (
 		jobID            models.ID
 		transmitter      Transmitter
 		contractABI      abi.ABI
+		logger           logger.Logger
 	}
 
 	Transmitter interface {
@@ -48,9 +49,10 @@ var (
 	_ ocrtypes.ContractConfigTracker      = &OCRContract{}
 	_ ocrtypes.ContractTransmitter        = &OCRContract{}
 	_ ocrtypes.ContractConfigSubscription = &OCRContractConfigSubscription{}
+	_ eth.LogListener                     = &OCRContractConfigSubscription{}
 )
 
-func NewOCRContract(address gethCommon.Address, ethClient eth.Client, logBroadcaster eth.LogBroadcaster, jobID models.ID, transmitter Transmitter) (o *OCRContract, err error) {
+func NewOCRContract(address gethCommon.Address, ethClient eth.Client, logBroadcaster eth.LogBroadcaster, jobID models.ID, transmitter Transmitter, logger logger.Logger) (o *OCRContract, err error) {
 	contractFilterer, err := offchainaggregator.NewOffchainAggregatorFilterer(address, ethClient)
 	if err != nil {
 		return o, errors.Wrap(err, "could not instantiate NewOffchainAggregatorFilterer")
@@ -68,7 +70,6 @@ func NewOCRContract(address gethCommon.Address, ethClient eth.Client, logBroadca
 
 	return &OCRContract{
 		ethClient,
-		make(chan offchainaggregator.OffchainAggregatorConfigSet),
 		contractFilterer,
 		contractCaller,
 		address,
@@ -76,6 +77,7 @@ func NewOCRContract(address gethCommon.Address, ethClient eth.Client, logBroadca
 		jobID,
 		transmitter,
 		contractABI,
+		logger,
 	}, nil
 }
 
@@ -90,6 +92,8 @@ func (oc *OCRContract) Transmit(ctx context.Context, report []byte, rs, ss [][32
 
 func (oc *OCRContract) SubscribeToNewConfigs(context.Context) (ocrtypes.ContractConfigSubscription, error) {
 	sub := &OCRContractConfigSubscription{
+		oc.logger,
+		oc.contractAddress,
 		make(chan ocrtypes.ContractConfig),
 		oc,
 		sync.Mutex{},
@@ -110,52 +114,6 @@ func (oc *OCRContract) LatestConfigDetails(ctx context.Context) (changedInBlock 
 		return 0, configDigest, errors.Wrap(err, "error getting LatestConfigDetails")
 	}
 	return uint64(result.BlockNumber), ocrtypes.BytesToConfigDigest(result.ConfigDigest[:]), err
-}
-
-// Conform OCRContract to LogListener interface
-type OCRContractConfigSubscription struct {
-	ch       chan ocrtypes.ContractConfig
-	oc       *OCRContract
-	mutex    sync.Mutex
-	chClosed bool
-}
-
-func (sub *OCRContractConfigSubscription) OnConnect() {}
-func (sub *OCRContractConfigSubscription) OnDisconnect() {
-	sub.mutex.Lock()
-	defer sub.mutex.Unlock()
-
-	if !sub.chClosed {
-		sub.chClosed = true
-		close(sub.ch)
-	}
-}
-func (sub *OCRContractConfigSubscription) HandleLog(lb eth.LogBroadcast, err error) {
-	topics := lb.Log().RawLog().Topics
-	if len(topics) == 0 {
-		return
-	}
-	switch topics[0] {
-	case OCRContractConfigSet:
-		configSet, err := sub.oc.contractFilterer.ParseConfigSet(lb.Log().RawLog())
-		if err != nil {
-			panic(err)
-		}
-		configSet.Raw = lb.Log().RawLog()
-		cc := confighelper.ContractConfigFromConfigSetEvent(*configSet)
-		sub.ch <- cc
-	default:
-	}
-}
-func (sub *OCRContractConfigSubscription) JobID() *models.ID {
-	jobID := sub.oc.jobID
-	return &jobID
-}
-func (sub *OCRContractConfigSubscription) Configs() <-chan ocrtypes.ContractConfig {
-	return sub.ch
-}
-func (sub *OCRContractConfigSubscription) Close() {
-	sub.oc.logBroadcaster.Unregister(sub.oc.contractAddress, sub)
 }
 
 func (oc *OCRContract) ConfigFromLogs(ctx context.Context, changedInBlock uint64) (c ocrtypes.ContractConfig, err error) {
@@ -205,14 +163,70 @@ func (oc *OCRContract) LatestTransmissionDetails(ctx context.Context) (configDig
 	return result.ConfigDigest, result.Epoch, result.Round, ocrtypes.Observation(result.LatestAnswer), time.Unix(int64(result.LatestTimestamp), 0), nil
 }
 
+func (oc *OCRContract) FromAddress() gethCommon.Address {
+	return oc.transmitter.FromAddress()
+}
+
+type OCRContractConfigSubscription struct {
+	logger          logger.Logger
+	contractAddress gethCommon.Address
+	ch              chan ocrtypes.ContractConfig
+	oc              *OCRContract
+	mutex           sync.Mutex
+	chClosed        bool
+}
+
+func (sub *OCRContractConfigSubscription) OnConnect() {}
+func (sub *OCRContractConfigSubscription) OnDisconnect() {
+	sub.mutex.Lock()
+	defer sub.mutex.Unlock()
+
+	if !sub.chClosed {
+		sub.chClosed = true
+		close(sub.ch)
+	}
+}
+func (sub *OCRContractConfigSubscription) HandleLog(lb eth.LogBroadcast, err error) {
+	topics := lb.Log().RawLog().Topics
+	if len(topics) == 0 {
+		return
+	}
+	switch topics[0] {
+	case OCRContractConfigSet:
+		raw := lb.Log().RawLog()
+		if raw.Address != sub.contractAddress {
+			sub.logger.Errorf("log address of 0x%x does not match configured contract address of 0x%x", raw.Address, sub.contractAddress)
+			return
+		}
+		configSet, err := sub.oc.contractFilterer.ParseConfigSet(raw)
+		if err != nil {
+			sub.logger.Errorw("could not parse config set", "err", err)
+			return
+		}
+		configSet.Raw = lb.Log().RawLog()
+		cc := confighelper.ContractConfigFromConfigSetEvent(*configSet)
+		sub.ch <- cc
+	default:
+	}
+}
+
+func (sub *OCRContractConfigSubscription) JobID() *models.ID {
+	jobID := sub.oc.jobID
+	return &jobID
+}
+
+func (sub *OCRContractConfigSubscription) Configs() <-chan ocrtypes.ContractConfig {
+	return sub.ch
+}
+
+func (sub *OCRContractConfigSubscription) Close() {
+	sub.oc.logBroadcaster.Unregister(sub.oc.contractAddress, sub)
+}
+
 func getConfigSetHash() gethCommon.Hash {
 	abi, err := abi.JSON(strings.NewReader(offchainaggregator.OffchainAggregatorABI))
 	if err != nil {
 		panic("could not parse OffchainAggregator ABI: " + err.Error())
 	}
 	return abi.Events["ConfigSet"].ID
-}
-
-func (oc *OCRContract) FromAddress() gethCommon.Address {
-	return oc.transmitter.FromAddress()
 }
