@@ -6,11 +6,13 @@ import (
 	"io/ioutil"
 	"log"
 	"math/big"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"time"
 
 	"github.com/smartcontractkit/chainlink/core/assets"
 	"github.com/smartcontractkit/chainlink/core/logger"
@@ -421,6 +423,30 @@ func (c Config) ExplorerSecret() string {
 	return c.viper.GetString(EnvVarName("ExplorerSecret"))
 }
 
+func (c Config) OCRIncomingMessageBufferSize() int {
+	return c.viper.GetInt(EnvVarName("OCRIncomingMessageBufferSize"))
+}
+
+func (c Config) OCROutgoingMessageBufferSize() int {
+	return c.viper.GetInt(EnvVarName("OCROutgoingMessageBufferSize"))
+}
+
+func (c Config) OCRNewStreamTimeout() time.Duration {
+	return c.viper.GetDuration(EnvVarName("OCRNewStreamTimeout"))
+}
+
+func (c Config) OCRDHTLookupInterval() int {
+	return c.viper.GetInt(EnvVarName("OCRDHTLookupInterval"))
+}
+
+func (c Config) OCRListenIP() net.IP {
+	return c.getWithFallback("OCRListenIP", parseIP).(net.IP)
+}
+
+func (c Config) OCRListenPort() uint16 {
+	return c.getWithFallback("OCRListenPort", parseUint16).(uint16)
+}
+
 // OracleContractAddress represents the deployed Oracle contract's address.
 func (c Config) OracleContractAddress() *common.Address {
 	if c.viper.GetString(EnvVarName("OracleContractAddress")) == "" {
@@ -676,6 +702,10 @@ func parseUint8(str string) (interface{}, error) {
 
 func parseURL(s string) (interface{}, error) {
 	return url.Parse(s)
+}
+
+func parseIP(s string) (interface{}, error) {
+	return net.ParseIP(s), nil
 }
 
 func parseBigInt(str string) (interface{}, error) {
