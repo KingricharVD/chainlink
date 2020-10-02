@@ -10,7 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink/core/internal/cltest"
 	"github.com/smartcontractkit/chainlink/core/store/offchainreportingdb"
 	"github.com/smartcontractkit/chainlink/core/utils"
-	ocrtypes "github.com/smartcontractkit/chainlink/offchainreporting/types"
+	ocrtypes "github.com/smartcontractkit/offchain-reporting/lib/offchainreporting/types"
 	"github.com/stretchr/testify/require"
 )
 
